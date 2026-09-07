@@ -6,7 +6,11 @@
 
     <meta
         name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+        content="width=device-width,
+                 initial-scale=1.0,
+                 maximum-scale=1.0,
+                 user-scalable=no,
+                 viewport-fit=cover"
     >
 
     <title>The Legend of Zelda - Link's Awakening DX</title>
@@ -20,130 +24,835 @@
             height: 100%;
             background: #000;
             overflow: hidden;
+            touch-action: none;
         }
 
         #game {
             width: 100%;
             height: 100%;
         }
+
+        #ios-status {
+            display: none;
+            position: fixed;
+            top: env(safe-area-inset-top, 0);
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 999999;
+
+            margin-top: 8px;
+            padding: 7px 12px;
+
+            color: white;
+            background: rgba(0, 0, 0, 0.75);
+
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+
+            border-radius: 20px;
+
+            pointer-events: none;
+        }
     </style>
 </head>
 
 <body>
 
-    <div id="game"></div>
+<div id="game"></div>
 
-    <script>
-        /*
-         * Contenedor donde se cargará EmulatorJS
-         */
-        EJS_player = "#game";
+<div id="ios-status">
+    Protegiendo partida...
+</div>
 
-        /*
-         * Core recomendado para esta prueba.
-         * Evitamos mGBA por ahora.
-         */
-        EJS_core = "gambatte";
+<script>
+/* =========================================================
+   CONFIGURACIÓN GENERAL
+   ========================================================= */
 
-        /*
-         * Nombre del juego
-         */
-        EJS_gameName =
-            "The Legend of Zelda - Link's Awakening DX";
+const GAME_NAME =
+    "The Legend of Zelda - Link's Awakening DX [GBC] Español";
 
-        /*
-         * ROM
-         * Debe coincidir exactamente con el nombre
-         * del archivo que tienes en GitHub.
-         */
-        EJS_gameUrl =
-            "The Legend of Zelda - Link's Awakening DX [GBC] Español.gbc";
+const ROM_URL =
+    "The Legend of Zelda - Link's Awakening DX [GBC] Español.gbc";
 
-        /*
-         * Archivos de EmulatorJS
-         */
-        EJS_pathtodata =
-            "https://cdn.emulatorjs.org/stable/data/";
+/*
+ * Clave utilizada para guardar el estado temporal.
+ */
+const RECOVERY_STATE_KEY =
+    "zelda_awakening_ios_recovery_state";
 
-        /*
-         * Iniciar automáticamente
-         */
-        EJS_startOnLoaded = true;
+const RECOVERY_TIME_KEY =
+    "zelda_awakening_ios_recovery_time";
 
-        /*
-         * Desactivar threads.
-         * Puede mejorar estabilidad en navegadores móviles.
-         */
-        EJS_threads = false;
+/*
+ * iOS suele presentar el problema aproximadamente
+ * entre 60 y 90 segundos.
+ *
+ * Reiniciamos preventivamente antes:
+ */
+const IOS_REFRESH_INTERVAL = 45000;
 
-        /*
-         * Fuerza los cores legacy / WebGL1.
-         * Útil para evitar algunos crashes de WebGL2.
-         */
-        EJS_forceLegacyCores = true;
 
-        /*
-         * Color de interfaz
-         */
-        EJS_color = "#0064ff";
+/* =========================================================
+   DETECTAR IPHONE / IPAD
+   ========================================================= */
 
-        /*
-         * Logs para diagnosticar si vuelve a fallar
-         */
-        EJS_DEBUG_XX = true;
+function isIOSDevice() {
 
-        EJS_ready = function () {
-            console.log("[EJS] EmulatorJS cargado correctamente");
-        };
+    const userAgent =
+        window.navigator.userAgent.toLowerCase();
 
-        EJS_onGameStart = function () {
-            console.log("[EJS] Zelda iniciado");
-        };
+    const platform =
+        window.navigator.platform;
 
-        EJS_onExit = function () {
-            console.warn("[EJS] El emulador fue cerrado");
-        };
+    /*
+     * iPhone / iPad / iPod tradicionales
+     */
+    const classicIOS =
+        /iphone|ipad|ipod/.test(userAgent);
 
-        /*
-         * Detectar errores JavaScript
-         */
-        window.addEventListener("error", function (event) {
-            console.error(
-                "[WINDOW ERROR]",
-                event.error || event.message
+    /*
+     * Algunos iPad modernos se identifican
+     * como MacIntel.
+     */
+    const modernIPad =
+        platform === "MacIntel" &&
+        navigator.maxTouchPoints > 1;
+
+    return classicIOS || modernIPad;
+}
+
+const IS_IOS = isIOSDevice();
+
+console.log(
+    "[ZELDA] Dispositivo iOS:",
+    IS_IOS
+);
+
+
+/* =========================================================
+   EMULATORJS
+   ========================================================= */
+
+EJS_player = "#game";
+
+/*
+ * Gambatte funciona muy bien con GB / GBC
+ * y consume pocos recursos.
+ */
+EJS_core = "gambatte";
+
+EJS_gameName = GAME_NAME;
+
+EJS_gameUrl = ROM_URL;
+
+EJS_color = "#0064ff";
+
+EJS_startOnLoaded = true;
+
+/*
+ * Sin multithreading.
+ */
+EJS_threads = false;
+
+/*
+ * WebGL 1.
+ */
+EJS_forceLegacyCores = true;
+
+/*
+ * ID único del juego.
+ */
+EJS_gameID = 1001;
+
+/*
+ * Mantener los estados dentro del navegador.
+ */
+EJS_defaultOptions = {
+    "save-state-location": "browser",
+    "rewindEnabled": "disabled"
+};
+
+/*
+ * CDN EmulatorJS.
+ */
+EJS_pathtodata =
+    "https://cdn.emulatorjs.org/stable/data/";
+
+/*
+ * Logs.
+ */
+EJS_DEBUG_XX = true;
+
+
+/* =========================================================
+   VARIABLES DE CONTROL
+   ========================================================= */
+
+let preventiveTimer = null;
+
+let recoveryInProgress = false;
+
+let gameStarted = false;
+
+
+/* =========================================================
+   MENSAJE PEQUEÑO
+   ========================================================= */
+
+function showStatus(message) {
+
+    const element =
+        document.getElementById("ios-status");
+
+    if (!element) {
+        return;
+    }
+
+    element.textContent = message;
+    element.style.display = "block";
+}
+
+function hideStatus() {
+
+    const element =
+        document.getElementById("ios-status");
+
+    if (!element) {
+        return;
+    }
+
+    element.style.display = "none";
+}
+
+
+/* =========================================================
+   CONVERTIR Uint8Array -> BASE64
+   ========================================================= */
+
+function uint8ArrayToBase64(array) {
+
+    let binary = "";
+
+    const chunkSize = 0x8000;
+
+    for (
+        let i = 0;
+        i < array.length;
+        i += chunkSize
+    ) {
+
+        const chunk =
+            array.subarray(
+                i,
+                Math.min(
+                    i + chunkSize,
+                    array.length
+                )
             );
-        });
+
+        binary +=
+            String.fromCharCode.apply(
+                null,
+                chunk
+            );
+    }
+
+    return btoa(binary);
+}
+
+
+/* =========================================================
+   CONVERTIR BASE64 -> Uint8Array
+   ========================================================= */
+
+function base64ToUint8Array(base64) {
+
+    const binary =
+        atob(base64);
+
+    const bytes =
+        new Uint8Array(binary.length);
+
+    for (
+        let i = 0;
+        i < binary.length;
+        i++
+    ) {
+        bytes[i] =
+            binary.charCodeAt(i);
+    }
+
+    return bytes;
+}
+
+
+/* =========================================================
+   ESPERAR A QUE EL CORE ESTÉ REALMENTE LISTO
+   ========================================================= */
+
+async function waitForGameManager(
+    timeout = 10000
+) {
+
+    const start = Date.now();
+
+    while (
+        Date.now() - start <
+        timeout
+    ) {
+
+        try {
+
+            if (
+                window.EJS_emulator &&
+                window.EJS_emulator.gameManager &&
+                typeof window.EJS_emulator
+                    .gameManager
+                    .getState === "function" &&
+                typeof window.EJS_emulator
+                    .gameManager
+                    .loadState === "function"
+            ) {
+
+                return true;
+            }
+
+        } catch (error) {
+            console.warn(
+                "[ZELDA] Esperando GameManager...",
+                error
+            );
+        }
+
+        await new Promise(
+            resolve =>
+                setTimeout(resolve, 100)
+        );
+    }
+
+    return false;
+}
+
+
+/* =========================================================
+   GUARDAR ESTADO DE RECUPERACIÓN
+   ========================================================= */
+
+async function saveRecoveryState() {
+
+    if (
+        recoveryInProgress
+    ) {
+        return false;
+    }
+
+    recoveryInProgress = true;
+
+    try {
+
+        const ready =
+            await waitForGameManager();
+
+        if (!ready) {
+
+            console.error(
+                "[ZELDA] GameManager no disponible."
+            );
+
+            recoveryInProgress = false;
+
+            return false;
+        }
 
         /*
-         * Detectar errores de promesas / WASM
+         * Pausamos unos milisegundos para
+         * serializar un estado consistente.
          */
-        window.addEventListener(
-            "unhandledrejection",
-            function (event) {
-                console.error(
-                    "[PROMISE ERROR]",
-                    event.reason
-                );
+        if (
+            window.EJS_emulator &&
+            typeof window.EJS_emulator.pause ===
+            "function"
+        ) {
+            window.EJS_emulator.pause();
+        }
+
+        await new Promise(
+            resolve =>
+                setTimeout(resolve, 80)
+        );
+
+        const state =
+            window.EJS_emulator
+                .gameManager
+                .getState();
+
+        if (
+            !state ||
+            state.length === 0
+        ) {
+
+            throw new Error(
+                "El estado obtenido está vacío."
+            );
+        }
+
+        /*
+         * Nos aseguramos de tener Uint8Array.
+         */
+        const stateArray =
+            state instanceof Uint8Array
+                ? state
+                : new Uint8Array(state);
+
+        const base64 =
+            uint8ArrayToBase64(
+                stateArray
+            );
+
+        /*
+         * localStorage es síncrono:
+         * importante antes de reiniciar WebKit.
+         */
+        localStorage.setItem(
+            RECOVERY_STATE_KEY,
+            base64
+        );
+
+        localStorage.setItem(
+            RECOVERY_TIME_KEY,
+            Date.now().toString()
+        );
+
+        console.log(
+            "[ZELDA] Estado de recuperación guardado.",
+            stateArray.length,
+            "bytes"
+        );
+
+        recoveryInProgress = false;
+
+        return true;
+
+    } catch (error) {
+
+        console.error(
+            "[ZELDA] Error guardando recuperación:",
+            error
+        );
+
+        recoveryInProgress = false;
+
+        /*
+         * Si falla el guardado, reanudamos
+         * el juego y NO recargamos la página.
+         */
+        try {
+
+            if (
+                window.EJS_emulator &&
+                typeof window.EJS_emulator.play ===
+                "function"
+            ) {
+                window.EJS_emulator.play();
             }
+
+        } catch (_) {}
+
+        return false;
+    }
+}
+
+
+/* =========================================================
+   RESTAURAR ESTADO
+   ========================================================= */
+
+async function restoreRecoveryState() {
+
+    const savedState =
+        localStorage.getItem(
+            RECOVERY_STATE_KEY
+        );
+
+    if (!savedState) {
+
+        console.log(
+            "[ZELDA] No existe recuperación pendiente."
+        );
+
+        return false;
+    }
+
+    try {
+
+        showStatus(
+            "Recuperando partida..."
+        );
+
+        const ready =
+            await waitForGameManager();
+
+        if (!ready) {
+
+            console.error(
+                "[ZELDA] No fue posible restaurar: core no listo."
+            );
+
+            hideStatus();
+
+            return false;
+        }
+
+        /*
+         * Esperamos unos frames.
+         *
+         * Algunos cores fallan si se intenta
+         * cargar un state inmediatamente después
+         * de inicializar WASM.
+         */
+        await new Promise(
+            resolve =>
+                setTimeout(resolve, 700)
+        );
+
+        const state =
+            base64ToUint8Array(
+                savedState
+            );
+
+        console.log(
+            "[ZELDA] Restaurando",
+            state.length,
+            "bytes."
+        );
+
+        window.EJS_emulator
+            .gameManager
+            .loadState(state);
+
+        /*
+         * Dejamos pasar algunos frames antes
+         * de quitar la copia temporal.
+         */
+        await new Promise(
+            resolve =>
+                setTimeout(resolve, 600)
+        );
+
+        localStorage.removeItem(
+            RECOVERY_STATE_KEY
+        );
+
+        localStorage.removeItem(
+            RECOVERY_TIME_KEY
+        );
+
+        console.log(
+            "[ZELDA] Partida restaurada correctamente."
+        );
+
+        hideStatus();
+
+        return true;
+
+    } catch (error) {
+
+        console.error(
+            "[ZELDA] Error restaurando estado:",
+            error
         );
 
         /*
-         * Si aparece esto en consola antes del fallo,
-         * significa que la página realmente se está recargando.
+         * NO eliminamos el estado si falló.
+         *
+         * De esta manera podemos volver a
+         * intentar recuperarlo.
          */
-        window.addEventListener(
-            "beforeunload",
-            function () {
-                console.warn(
-                    "[PAGE] La página se está recargando"
-                );
-            }
+        showStatus(
+            "No se pudo recuperar automáticamente"
         );
-    </script>
 
-    <script
-        src="https://cdn.emulatorjs.org/stable/data/loader.js">
-    </script>
+        setTimeout(
+            hideStatus,
+            3000
+        );
+
+        return false;
+    }
+}
+
+
+/* =========================================================
+   REINICIO PREVENTIVO DE IOS
+   ========================================================= */
+
+async function preventiveRestart() {
+
+    /*
+     * Solo iPhone / iPad.
+     */
+    if (!IS_IOS) {
+        return;
+    }
+
+    /*
+     * Evitar llamadas dobles.
+     */
+    if (
+        recoveryInProgress ||
+        !gameStarted
+    ) {
+        return;
+    }
+
+    console.log(
+        "[ZELDA] Iniciando mantenimiento preventivo..."
+    );
+
+    showStatus(
+        "Protegiendo partida..."
+    );
+
+    /*
+     * Guardamos estado.
+     */
+    const saved =
+        await saveRecoveryState();
+
+    if (!saved) {
+
+        console.warn(
+            "[ZELDA] No se reiniciará porque no se pudo guardar."
+        );
+
+        hideStatus();
+
+        schedulePreventiveRestart();
+
+        return;
+    }
+
+    showStatus(
+        "Continuando partida..."
+    );
+
+    /*
+     * Damos tiempo para confirmar que localStorage
+     * quedó escrito.
+     */
+    await new Promise(
+        resolve =>
+            setTimeout(resolve, 150)
+    );
+
+    /*
+     * Recarga voluntaria.
+     *
+     * Esto destruye el contexto WebGL/WASM antes
+     * de que WebKit llegue al punto donde mata
+     * completamente la pestaña.
+     */
+    window.location.reload();
+}
+
+
+/* =========================================================
+   PROGRAMAR PRÓXIMO MANTENIMIENTO
+   ========================================================= */
+
+function schedulePreventiveRestart() {
+
+    if (!IS_IOS) {
+        return;
+    }
+
+    if (preventiveTimer) {
+
+        clearTimeout(
+            preventiveTimer
+        );
+    }
+
+    console.log(
+        "[ZELDA] Próxima protección en",
+        IOS_REFRESH_INTERVAL / 1000,
+        "segundos."
+    );
+
+    preventiveTimer =
+        setTimeout(
+            preventiveRestart,
+            IOS_REFRESH_INTERVAL
+        );
+}
+
+
+/* =========================================================
+   EMULATORJS LISTO
+   ========================================================= */
+
+EJS_ready = function () {
+
+    console.log(
+        "[ZELDA] EmulatorJS listo."
+    );
+};
+
+
+/* =========================================================
+   JUEGO INICIADO
+   ========================================================= */
+
+EJS_onGameStart =
+async function () {
+
+    console.log(
+        "[ZELDA] Juego iniciado."
+    );
+
+    gameStarted = true;
+
+    /*
+     * Primero recuperamos si el reinicio
+     * anterior dejó un estado.
+     */
+    const restored =
+        await restoreRecoveryState();
+
+    if (restored) {
+
+        console.log(
+            "[ZELDA] Sesión continuada."
+        );
+
+    } else {
+
+        console.log(
+            "[ZELDA] Inicio normal."
+        );
+    }
+
+    /*
+     * Iniciamos nuevamente el contador.
+     */
+    schedulePreventiveRestart();
+};
+
+
+/* =========================================================
+   ERRORES
+   ========================================================= */
+
+window.addEventListener(
+    "error",
+    function (event) {
+
+        console.error(
+            "[WINDOW ERROR]",
+            event.error ||
+            event.message
+        );
+    }
+);
+
+
+window.addEventListener(
+    "unhandledrejection",
+    function (event) {
+
+        console.error(
+            "[PROMISE ERROR]",
+            event.reason
+        );
+    }
+);
+
+
+/* =========================================================
+   WEBGL CONTEXT LOST
+   ========================================================= */
+
+document.addEventListener(
+    "webglcontextlost",
+    function (event) {
+
+        console.error(
+            "[ZELDA] WebGL context perdido."
+        );
+
+        event.preventDefault();
+
+    },
+    true
+);
+
+
+/* =========================================================
+   CUANDO EL USUARIO SALE
+   ========================================================= */
+
+EJS_onExit = function () {
+
+    console.log(
+        "[ZELDA] Emulador cerrado."
+    );
+
+    if (preventiveTimer) {
+
+        clearTimeout(
+            preventiveTimer
+        );
+    }
+};
+
+
+/* =========================================================
+   DIAGNÓSTICO
+   ========================================================= */
+
+console.log(
+    "===================================="
+);
+
+console.log(
+    "ZELDA LINK'S AWAKENING DX"
+);
+
+console.log(
+    "Protección iOS:",
+    IS_IOS ? "ACTIVA" : "DESACTIVADA"
+);
+
+console.log(
+    "Core: gambatte"
+);
+
+console.log(
+    "Threads: false"
+);
+
+console.log(
+    "Legacy cores: true"
+);
+
+console.log(
+    "Intervalo:",
+    IOS_REFRESH_INTERVAL / 1000,
+    "segundos"
+);
+
+console.log(
+    "===================================="
+);
+
+</script>
+
+
+<!-- EMULATORJS -->
+<script
+    src="https://cdn.emulatorjs.org/stable/data/loader.js">
+</script>
 
 </body>
 </html>
