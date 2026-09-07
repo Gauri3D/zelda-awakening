@@ -1,71 +1,150 @@
-<html>
+```html
+<!DOCTYPE html>
+<html lang="es">
 <head>
-<style>
-body, html {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-}
+    <meta charset="UTF-8">
 
-#game {
-    width: 100%;
-    height: 100%;
-}
-</style>
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    >
+
+    <title>The Legend of Zelda - Link's Awakening DX</title>
+
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+        }
+
+        #game {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
 </head>
 
 <body>
 
-<div style="width:100%;height:100%;max-width:100%">
     <div id="game"></div>
-</div>
 
-<script>
+    <script>
+        /*
+         * Contenedor donde se cargará EmulatorJS
+         */
+        EJS_player = "#game";
 
-EJS_player = "#game";
+        /*
+         * Core recomendado para esta prueba.
+         * Evitamos mGBA por ahora.
+         */
+        EJS_core = "gambatte";
 
-EJS_core = "gambatte";
+        /*
+         * Nombre del juego
+         */
+        EJS_gameName =
+            "The Legend of Zelda - Link's Awakening DX";
 
-EJS_gameName =
-    "The Legend of Zelda - Link's Awakening DX [GBC] Español";
+        /*
+         * ROM
+         * Debe coincidir exactamente con el nombre
+         * del archivo que tienes en GitHub.
+         */
+        EJS_gameUrl =
+            "The Legend of Zelda - Link's Awakening DX [GBC] Español.gbc";
 
-EJS_color = "#0064ff";
+        /*
+         * Archivos de EmulatorJS
+         */
+        EJS_pathtodata =
+            "https://cdn.emulatorjs.org/stable/data/";
 
-EJS_startOnLoaded = true;
+        /*
+         * Iniciar automáticamente
+         */
+        EJS_startOnLoaded = true;
 
-EJS_pathtodata =
-    "https://cdn.emulatorjs.org/stable/data/";
+        /*
+         * Desactivar threads.
+         * Puede mejorar estabilidad en navegadores móviles.
+         */
+        EJS_threads = false;
 
-EJS_gameUrl =
-    "The Legend of Zelda - Link's Awakening DX [GBC] Español.gbc";
+        /*
+         * Fuerza los cores legacy / WebGL1.
+         * Útil para evitar algunos crashes de WebGL2.
+         */
+        EJS_forceLegacyCores = true;
 
-EJS_DEBUG_XX = true;
+        /*
+         * Color de interfaz
+         */
+        EJS_color = "#0064ff";
 
-EJS_ready = function () {
-    console.log("[EJS] EmulatorJS listo");
-};
+        /*
+         * Logs para diagnosticar si vuelve a fallar
+         */
+        EJS_DEBUG_XX = true;
 
-EJS_onGameStart = function () {
-    console.log("[EJS] Zelda iniciado");
-};
+        EJS_ready = function () {
+            console.log("[EJS] EmulatorJS cargado correctamente");
+        };
 
-window.addEventListener("error", function(event) {
-    console.error("[ERROR]", event.error || event.message);
-});
+        EJS_onGameStart = function () {
+            console.log("[EJS] Zelda iniciado");
+        };
 
-window.addEventListener(
-    "unhandledrejection",
-    function(event) {
-        console.error("[PROMISE]", event.reason);
-    }
-);
+        EJS_onExit = function () {
+            console.warn("[EJS] El emulador fue cerrado");
+        };
 
-</script>
+        /*
+         * Detectar errores JavaScript
+         */
+        window.addEventListener("error", function (event) {
+            console.error(
+                "[WINDOW ERROR]",
+                event.error || event.message
+            );
+        });
 
-<script src=
-"https://cdn.emulatorjs.org/stable/data/loader.js">
-</script>
+        /*
+         * Detectar errores de promesas / WASM
+         */
+        window.addEventListener(
+            "unhandledrejection",
+            function (event) {
+                console.error(
+                    "[PROMISE ERROR]",
+                    event.reason
+                );
+            }
+        );
+
+        /*
+         * Si aparece esto en consola antes del fallo,
+         * significa que la página realmente se está recargando.
+         */
+        window.addEventListener(
+            "beforeunload",
+            function () {
+                console.warn(
+                    "[PAGE] La página se está recargando"
+                );
+            }
+        );
+    </script>
+
+    <script
+        src="https://cdn.emulatorjs.org/stable/data/loader.js">
+    </script>
 
 </body>
 </html>
+```
